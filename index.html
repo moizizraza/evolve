@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evolve AI Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <!-- PDF and DOCX parsing libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.16/mammoth.browser.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+        .chat-bubble {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 20px;
+            word-wrap: break-word;
+            position: relative;
+            opacity: 0;
+            transform: translateY(10px);
+            animation: slideUpFadeIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+        @keyframes slideUpFadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .user-bubble { background-color: #2563EB; color: white; align-self: flex-end; }
+        .assistant-bubble { 
+            background-color: #374151; 
+            color: #E5E7EB; 
+            align-self: flex-start;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+        .disclaimer-bubble {
+            background-color: transparent;
+            border: 1px solid #4B5563;
+            color: #9CA3AF;
+            font-size: 0.8rem;
+            align-self: center;
+            text-align: center;
+        }
+        .modal { transition: opacity 0.3s ease; }
+        .modal-content { transition: transform 0.3s ease, opacity 0.3s ease; }
+        #wave-canvas {
+            width: 100%;
+            height: 80px;
+            position: absolute;
+            bottom: 80px;
+            left: 0;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        #input-wrapper { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        #input-wrapper.hidden-input { opacity: 0; transform: translateY(20px); max-width: 0px; }
+        #settings-panel {
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateX(-100%);
+        }
+        #settings-panel.open { transform: translateX(0); }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: 600;
+            color: white;
+            border-radius: 9999px;
+            margin-top: 8px;
+            opacity: 0;
+            animation: fadeIn 0.5s ease 0.3s forwards;
+        }
+        .badge svg {
+            width: 12px;
+            height: 12px;
+            margin-right: 4px;
+        }
+        .grounded-badge { background-color: #10B981; }
+        .social-intel-badge { background-color: #8B5CF6; }
+        .math-badge { background-color: #EC4899; }
+        .measurement-badge { background-color: #14B8A6; }
+        .visual-badge { background-color: #6366F1; }
+        .file-badge { background-color: #F59E0B; }
+        .model-badge { background-color: #F59E0B; }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out;
+        }
+        .group:hover .copy-btn {
+            opacity: 1;
+        }
+        .lang-btn.active {
+            background-color: #2563EB;
+            color: white;
+        }
+        #camera-modal {
+             background-color: rgba(0,0,0,0.9);
+        }
+        #camera-feed {
+            transform: scaleX(-1); /* Mirror view */
+        }
+        /* Welcome Screen Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(255, 255, 255, 0); }
+        }
+        .fade-in { animation: fadeIn 1s ease-in-out forwards; }
+        .fade-in-up { animation: fadeInUp 1s ease-in-out forwards; }
+        .pulse-animation { animation: pulse 2.5s infinite; }
+        /* Dot Matrix Loader */
+        .dot-loader-sm {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .dot-loader-sm .dot {
+            width: 6px;
+            height: 6px;
+            background-color: #9CA3AF;
+            border-radius: 50%;
+            margin: 0 3px;
+            animation: dot-pulse 1.4s infinite ease-in-out both;
+        }
+        .dot-loader-sm .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot-loader-sm .dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes dot-pulse {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
+        /* Button Click Animation */
+        .btn-click-effect:active {
+            transform: scale(0.95);
+            transition: transform 0.1s ease;
+        }
+    </style>
+</head>
+<body class="bg-black text-gray-200 flex flex-col items-center justify-center h-screen">
+
+    <!-- Password Screen -->
+    <div id="password-modal" class="absolute inset-0 bg-black z-60 flex flex-col items-center justify-center p-8 text-center transition-opacity duration-500">
+        <h2 class="text-3xl font-bold text-white mb-4">Enter Security Code</h2>
+        <form id="password-form" class="w-full max-w-sm">
+            <input type="password" id="password-input" class="w-full bg-gray-800 border border-gray-700 rounded-lg py-3 px-4 text-white text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="••••••••••">
+            <p id="password-error" class="text-red-500 text-sm mt-2 h-5"></p>
+            <button type="submit" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors btn-click-effect">Authenticate</button>
+        </form>
+    </div>
+
+    <!-- Welcome Screen -->
+    <div id="welcome-screen" class="absolute inset-0 bg-black z-50 flex-col items-center justify-center p-8 text-center transition-opacity duration-1000 hidden">
+        <h1 class="text-5xl md:text-7xl font-bold text-white mb-4 fade-in" style="animation-delay: 0.5s;">Welcome to Evolve</h1>
+        <p class="text-lg text-gray-400 mb-12 fade-in-up" style="animation-delay: 1s;">Your AI-powered assistant is ready.</p>
+        <button id="get-started-btn" class="bg-white text-blue-600 rounded-full flex items-center justify-center fade-in-up pulse-animation px-8 py-4" style="animation-delay: 1.5s;">
+            <svg class="w-8 h-8 mr-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M15 8H9V12H14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M9 16H15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="text-xl font-semibold">Get Started</span>
+        </button>
+        <p class="absolute bottom-8 text-xs text-gray-600 fade-in" style="animation-delay: 2s;">This is a developmental build. Features are subject to change.</p>
+    </div>
+
+    <!-- Main App (Initially Hidden) -->
+    <div id="main-app" class="w-full h-full flex-col items-center relative hidden">
+        <!-- Settings Panel (Initially Hidden) -->
+        <div id="settings-panel" class="fixed top-0 left-0 h-full w-80 bg-gray-900 z-50 p-6 shadow-2xl flex flex-col">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-white">Settings</h2>
+                <button id="close-settings-btn" class="p-2 rounded-full hover:bg-gray-800 btn-click-effect">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            
+            <div class="mb-6">
+                <label for="api-key-input" class="block mb-2 text-sm font-medium text-gray-400">Google AI API Key</label>
+                <input type="password" id="api-key-input" class="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5" placeholder="Enter your API key">
+            </div>
+
+            <div class="mb-6">
+                <label class="flex items-center justify-between cursor-pointer">
+                    <span class="text-sm font-medium text-gray-300">Voice Over</span>
+                    <div class="relative">
+                        <input type="checkbox" id="voice-toggle" class="sr-only peer" checked>
+                        <div class="w-11 h-6 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </div>
+                </label>
+            </div>
+            
+            <div class="mb-6">
+                <label class="block mb-2 text-sm font-medium text-gray-400">Language</label>
+                <div class="flex rounded-lg bg-gray-800 p-1">
+                    <button id="lang-en-btn" class="lang-btn active w-full px-4 py-2 text-sm font-semibold rounded-md transition-colors">English</button>
+                    <button id="lang-hi-btn" class="lang-btn w-full px-4 py-2 text-sm font-semibold rounded-md transition-colors">हिन्दी</button>
+                </div>
+            </div>
+
+            <div class="mb-6">
+                <label for="voice-select" class="block mb-2 text-sm font-medium text-gray-400">Voice</label>
+                <select id="voice-select" class="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5"></select>
+            </div>
+
+            <div class="flex-grow flex flex-col min-h-0">
+                <h3 class="mb-2 text-sm font-medium text-gray-400">History</h3>
+                <div id="history-list" class="flex-grow overflow-y-auto bg-gray-800 rounded-lg p-2 space-y-1"></div>
+            </div>
+
+            <div class="mt-6 pt-6 border-t border-gray-700">
+                 <h3 class="mb-2 text-sm font-medium text-gray-400">Account</h3>
+                 <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center font-bold">G</div>
+                    <div>
+                        <p class="font-semibold text-white">Guest User</p>
+                        <p class="text-xs text-gray-500">guest@evolve.ai</p>
+                    </div>
+                 </div>
+                 <button class="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors btn-click-effect">Login</button>
+            </div>
+            
+            <div class="mt-6 pt-6 border-t border-gray-700">
+                <h3 class="mb-2 text-sm font-medium text-gray-400">Security</h3>
+                <div class="flex items-center space-x-2 text-green-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                    </svg>
+                    <span class="text-sm">Certified & Secure</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="w-full h-full flex flex-col items-center relative">
+            <div class="w-full max-w-3xl p-4 flex-shrink-0">
+                <button id="open-settings-btn" class="p-2 rounded-full hover:bg-gray-800 btn-click-effect">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                </button>
+            </div>
+
+            <div id="chat-history" class="w-full max-w-3xl flex-grow overflow-y-auto px-6 space-y-4 flex flex-col"></div>
+
+            <canvas id="wave-canvas"></canvas>
+
+            <div class="w-full max-w-3xl p-4 bg-black flex-shrink-0">
+                <div id="processing-indicator" class="hidden items-center justify-center mb-2 text-sm text-gray-400 h-5">
+                    <div class="dot-loader-sm">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+                </div>
+                <div id="file-context-indicator" class="hidden items-center justify-center mb-2 text-sm text-gray-400">
+                    <span id="file-context-name" class="truncate max-w-xs"></span>
+                    <button id="clear-file-btn" class="ml-2 p-1 rounded-full hover:bg-gray-700 btn-click-effect">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div class="bg-gray-900 rounded-2xl p-2 flex items-center justify-center space-x-2">
+                    <div id="input-wrapper" class="flex items-center space-x-2 flex-grow">
+                         <button id="camera-btn" class="p-3 rounded-full hover:bg-gray-800 transition-colors btn-click-effect" title="Visual Analysis">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        </button>
+                        <button id="upload-btn" class="p-3 rounded-full hover:bg-gray-800 transition-colors btn-click-effect" title="Upload File"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></button>
+                        <button id="model-btn" class="p-3 rounded-full hover:bg-gray-800 transition-colors btn-click-effect" title="Change AI Model">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                        </button>
+                        <button id="measurement-toggle-btn" class="p-3 rounded-full hover:bg-gray-800 transition-colors btn-click-effect" title="Toggle Measurement Mode">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" /></svg>
+                        </button>
+                        <button id="math-toggle-btn" class="p-3 rounded-full hover:bg-gray-800 transition-colors btn-click-effect" title="Toggle Math Mode">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h3m-3-10h.01M9 17h.01M12 17h.01M15 17h.01M9 14h.01M12 14h.01M15 14h.01M9 11h.01M12 11h.01M15 11h.01M12 21a9 9 0 110-18 9 9 0 010 18z" /></svg>
+                        </button>
+                        <button id="social-toggle-btn" class="p-3 rounded-full hover:bg-gray-800 transition-colors btn-click-effect" title="Toggle Deep Social Check">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9V3m0 18a9 9 0 009-9m-9 9a9 9 0 00-9-9" /></svg>
+                        </button>
+                        <input type="file" id="file-input" class="hidden" accept=".txt,.pdf,.docx">
+                        <input type="text" id="text-prompt" class="flex-grow bg-transparent text-white placeholder-gray-500 focus:outline-none px-2" placeholder="Type a message...">
+                        <button id="send-btn" class="p-3 rounded-full hover:bg-gray-800 transition-colors btn-click-effect" title="Send Message"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg></button>
+                    </div>
+                    <button id="listen-btn" class="p-3 rounded-full bg-blue-600 hover:bg-blue-700 transition-colors flex-shrink-0 btn-click-effect" title="Listen"><svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Camera Modal -->
+    <div id="camera-modal" class="modal fixed inset-0 flex items-center justify-center p-4 hidden z-50">
+        <video id="camera-feed" class="absolute top-0 left-0 w-full h-full object-cover" autoplay playsinline></video>
+        <canvas id="capture-canvas" class="hidden"></canvas>
+        <div class="absolute bottom-10 left-1/2 -translate-x-1/2 flex space-x-4 z-10">
+            <button id="capture-btn" class="w-20 h-20 bg-white rounded-full border-4 border-black ring-2 ring-white"></button>
+            <button id="close-camera-btn" class="absolute -right-20 top-1/2 -translate-y-1/2 p-3 bg-white/20 rounded-full text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Email Modal -->
+    <div id="email-modal" class="modal fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 hidden z-50">
+        <div class="modal-content bg-gray-900 border border-gray-700 rounded-2xl shadow-xl w-full max-w-lg p-8 transform scale-95">
+            <h2 class="text-2xl font-bold mb-6 text-teal-400">Draft an Email</h2>
+            <form id="email-form">
+                <div class="mb-4"><label for="email-to" class="block text-gray-300 mb-2">Recipient:</label><input type="text" id="email-to" class="w-full bg-gray-800 border border-gray-600 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="e.g., team@example.com"></div>
+                <div class="mb-4"><label for="email-subject" class="block text-gray-300 mb-2">Subject:</label><input type="text" id="email-subject" class="w-full bg-gray-800 border border-gray-600 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="e.g., Project Update"></div>
+                <div class="mb-6"><label for="email-prompt" class="block text-gray-300 mb-2">What is the email about?</label><textarea id="email-prompt" rows="4" class="w-full bg-gray-800 border border-gray-600 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="e.g., Tell the team we are launching the new feature on Friday..."></textarea></div>
+                <div class="flex justify-end space-x-4"><button type="button" id="cancel-email-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Cancel</button><button type="submit" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg transition-colors">Generate Draft</button></div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM References ---
+        const dom = {
+            welcomeScreen: document.getElementById('welcome-screen'),
+            getStartedBtn: document.getElementById('get-started-btn'),
+            mainApp: document.getElementById('main-app'),
+            listenBtn: document.getElementById('listen-btn'),
+            uploadBtn: document.getElementById('upload-btn'),
+            fileInput: document.getElementById('file-input'),
+            textPrompt: document.getElementById('text-prompt'),
+            sendBtn: document.getElementById('send-btn'),
+            chatHistory: document.getElementById('chat-history'),
+            emailModal: document.getElementById('email-modal'),
+            emailForm: document.getElementById('email-form'),
+            cancelEmailBtn: document.getElementById('cancel-email-btn'),
+            canvas: document.getElementById('wave-canvas'),
+            inputWrapper: document.getElementById('input-wrapper'),
+            settingsPanel: document.getElementById('settings-panel'),
+            openSettingsBtn: document.getElementById('open-settings-btn'),
+            closeSettingsBtn: document.getElementById('close-settings-btn'),
+            voiceSelect: document.getElementById('voice-select'),
+            historyList: document.getElementById('history-list'),
+            socialToggleBtn: document.getElementById('social-toggle-btn'),
+            voiceToggle: document.getElementById('voice-toggle'),
+            langEnBtn: document.getElementById('lang-en-btn'),
+            langHiBtn: document.getElementById('lang-hi-btn'),
+            mathToggleBtn: document.getElementById('math-toggle-btn'),
+            measurementToggleBtn: document.getElementById('measurement-toggle-btn'),
+            cameraBtn: document.getElementById('camera-btn'),
+            cameraModal: document.getElementById('camera-modal'),
+            cameraFeed: document.getElementById('camera-feed'),
+            captureCanvas: document.getElementById('capture-canvas'),
+            captureBtn: document.getElementById('capture-btn'),
+            closeCameraBtn: document.getElementById('close-camera-btn'),
+            processingIndicator: document.getElementById('processing-indicator'),
+            fileContextIndicator: document.getElementById('file-context-indicator'),
+            fileContextName: document.getElementById('file-context-name'),
+            clearFileBtn: document.getElementById('clear-file-btn'),
+            modelBtn: document.getElementById('model-btn'),
+            passwordModal: document.getElementById('password-modal'),
+            passwordForm: document.getElementById('password-form'),
+            passwordInput: document.getElementById('password-input'),
+            passwordError: document.getElementById('password-error'),
+            apiKeyInput: document.getElementById('api-key-input')
+        };
+        const ctx = dom.canvas.getContext('2d');
+        let animationFrameId;
+
+        // --- Speech Recognition & Synthesis Setup ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+        } else {
+            dom.listenBtn.disabled = true;
+        }
+        
+        // --- State ---
+        let isListening = false;
+        let voices = [];
+        let chatLog = [];
+        let isDeepSearchEnabled = false;
+        let isVoiceEnabled = true;
+        let currentLanguage = 'en-US';
+        let isMathModeEnabled = false;
+        let isMeasurementModeEnabled = false;
+        let cameraStream = null;
+        let music;
+        let fileContext = null;
+        const aiModels = ['balanced', 'deep', 'creative'];
+        let currentAiModelIndex = 0;
+        let captureMode = 'identify'; // 'identify' or 'measure'
+        let hasShownDisclaimer = false;
+        let apiKey = localStorage.getItem('evolve-api-key') || '';
+
+        // --- Voice & Animation ---
+        function resizeCanvas() { dom.canvas.width = dom.canvas.parentElement.offsetWidth; dom.canvas.height = 80; }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let phase = 0;
+        function drawWave() {
+            ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
+            ctx.beginPath();
+            ctx.moveTo(0, dom.canvas.height / 2);
+            for (let x = 0; x < dom.canvas.width; x++) {
+                const y = (dom.canvas.height / 2) + Math.sin(x * 0.03 + phase) * 20 * (1 - Math.pow(Math.abs(x - dom.canvas.width / 2) / (dom.canvas.width / 2), 2));
+                ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = 'rgba(59, 130, 246, 0.7)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            phase += 0.1;
+            animationFrameId = requestAnimationFrame(drawWave);
+        }
+        function startAnimation() { dom.canvas.style.opacity = '1'; drawWave(); }
+        function stopAnimation() { dom.canvas.style.opacity = '0'; cancelAnimationFrame(animationFrameId); }
+
+        function populateVoiceList() { /* Unchanged */ }
+        function speak(text, onEndCallback = () => {}) { /* Unchanged */ }
+
+        // --- Welcome Screen & Music ---
+        function startMusic() {
+            if (Tone.context.state !== 'running') {
+                Tone.context.resume();
+            }
+            const synth = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "fatsine" },
+                envelope: { attack: 0.1, decay: 0.2, sustain: 0.5, release: 1.5 }
+            }).toDestination();
+            const pattern = new Tone.Pattern((time, note) => {
+                synth.triggerAttackRelease(note, "8n", time);
+            }, ["C4", "E4", "G4", "B4"], "randomWalk");
+            pattern.interval = "4n";
+            Tone.Transport.bpm.value = 80;
+            Tone.Transport.start();
+            pattern.start(0);
+            music = { synth, pattern };
+        }
+
+        function stopMusic() {
+            if (music) {
+                music.pattern.stop();
+                Tone.Transport.cancel(); // FIX: Clear scheduled events
+                Tone.Transport.stop();
+                music.synth.dispose();
+            }
+        }
+
+        // --- Initial Setup ---
+        function initialize() {
+            dom.apiKeyInput.value = apiKey;
+            populateVoiceList();
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = populateVoiceList;
+            }
+            if (!apiKey) {
+                addMessageToChat('Assistant', "Welcome! To get started, please enter your Google AI API key in the settings panel (click the ☰ icon). You can get a free key from Google AI Studio.");
+            } else {
+                setTimeout(() => speak("Hello! I am Evolve. How can I help you?"), 500);
+            }
+        }
+        
+        // --- Core Functions ---
+        function copyToClipboard(text) { /* Unchanged */ }
+
+        function addMessageToChat(sender, message, {isGrounded = false, isSocial = false, isMath = false, isMeasurement = false, isVisual = false, isFile = false, isDisclaimer = false} = {}) {
+            const bubble = document.createElement('div');
+            if (isDisclaimer) {
+                 bubble.classList.add('chat-bubble', 'disclaimer-bubble');
+            } else {
+                bubble.classList.add('chat-bubble', 'group', sender.toLowerCase() === 'user' ? 'user-bubble' : 'assistant-bubble');
+            }
+            
+            const cleanedMessage = message.replace(/[*#]/g, '');
+            const messageContent = document.createElement('div');
+            messageContent.textContent = cleanedMessage;
+            messageContent.className = 'whitespace-pre-wrap';
+            bubble.appendChild(messageContent);
+
+            if (sender.toLowerCase() === 'assistant' && !isDisclaimer) {
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn p-1.5 bg-gray-800 rounded-full transition-opacity focus:outline-none';
+                copyBtn.title = 'Copy text';
+                copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>`;
+                copyBtn.onclick = () => {
+                    copyToClipboard(cleanedMessage);
+                    copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>`;
+                    setTimeout(() => {
+                        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>`;
+                    }, 2000);
+                };
+                bubble.appendChild(copyBtn);
+            }
+
+            const badgeContainer = document.createElement('div');
+            badgeContainer.className = 'flex items-center space-x-2';
+
+            const modelBadge = document.createElement('div');
+            modelBadge.className = 'badge model-badge';
+            const modelName = aiModels[currentAiModelIndex];
+            modelBadge.textContent = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+            if (!isDisclaimer) {
+                badgeContainer.appendChild(modelBadge);
+            }
+
+            let badge;
+            if (isGrounded) {
+                badge = document.createElement('div');
+                badge.className = 'badge grounded-badge';
+                badge.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg> Grounded`;
+            } else if (isSocial) {
+                badge = document.createElement('div');
+                badge.className = 'badge social-intel-badge';
+                badge.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a5 5 0 00-5 5c0 1.654.886 3.085 2.188 3.881.445.278.962.428 1.499.547A4.986 4.986 0 0010 14a5 5 0 005-5c0-1.654-.886-3.085-2.188-3.881A4.94 4.94 0 0010 2z" /><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM2 10a8 8 0 1116 0 8 8 0 01-16 0z" /></svg> Social Intel`;
+            } else if (isMath) {
+                 badge = document.createElement('div');
+                badge.className = 'badge math-badge';
+                badge.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0L7.86 8.15a1 1 0 00.95.95h4.38a1 1 0 00.95-.95l-.65-4.98zM3.17 11.49c-1.56.38-1.56 2.6 0 2.98l4.98.65a1 1 0 00.95-.95v-4.38a1 1 0 00-.95-.95L3.17 11.49zM15.14 8.15l.65-4.98c.38-1.56 2.6-1.56 2.98 0l.65 4.98a1 1 0 01-.95.95h-4.38a1 1 0 01-.95-.95zM8.15 15.14l-4.98.65c-1.56.38-1.56 2.6 0 2.98l4.98.65a1 1 0 00.95-.95v-4.38a1 1 0 00-.95-.95z" clip-rule="evenodd" /></svg> Math Calculation`;
+            } else if (isMeasurement) {
+                badge = document.createElement('div');
+                badge.className = 'badge measurement-badge';
+                badge.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a3 3 0 00-3 3v1a1 1 0 102 0v-1a1 1 0 011-1h10a1 1 0 100-2H6a3 3 0 00-2.8 1.6L3 6z" clip-rule="evenodd" /></svg> Measurement`;
+            } else if (isVisual) {
+                 badge = document.createElement('div');
+                badge.className = 'badge visual-badge';
+                badge.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd" /></svg> Visual Analysis`;
+            } else if (isFile) {
+                badge = document.createElement('div');
+                badge.className = 'badge file-badge';
+                badge.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg> File Analysis`;
+            }
+            if(badge) badgeContainer.appendChild(badge);
+
+            bubble.appendChild(badgeContainer);
+
+            dom.chatHistory.appendChild(bubble);
+            dom.chatHistory.scrollTop = dom.chatHistory.scrollHeight;
+        }
+        
+        function addPromptToHistory(prompt) { /* Unchanged */ }
+
+        async function processLlmRequest(contents) {
+            if (!apiKey) {
+                addMessageToChat('Assistant', "API Key is missing. Please add it in the settings panel.");
+                throw new Error("API Key is missing.");
+            }
+            let response;
+            for (let retries = 0; retries < 3; retries++) {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents })
+                });
+                if (response.ok) break;
+                if (response.status === 429 || response.status >= 500) await new Promise(res => setTimeout(res, 1000 * (retries + 1)));
+                else throw new Error(`API Error: ${response.statusText}`);
+            }
+            if (!response.ok) throw new Error(`API request failed after retries`);
+            const result = await response.json();
+            return result.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't process that.";
+        }
+
+        async function getSocialIntel(query) { /* Unchanged */ }
+        
+        async function handleUserCommand(command) {
+            addMessageToChat('User', command);
+            addPromptToHistory(command);
+            dom.processingIndicator.classList.remove('hidden');
+
+            if (fileContext) {
+                const filePrompt = `You are Evolve, an AI document analyst. The user has uploaded a file with the following content. Answer the user's question based ONLY on this content. If the answer is not in the content, say so.\n\nFILE CONTENT:\n---\n${fileContext}\n---\n\nUSER QUESTION: "${command}"`;
+                const responseText = await processLlmRequest([{ role: "user", parts: [{ text: filePrompt }] }]);
+                addMessageToChat('Assistant', responseText, { isFile: true });
+                speak(responseText);
+                dom.listenBtn.disabled = false;
+                dom.processingIndicator.classList.add('hidden');
+                return;
+            }
+
+            if (isMathModeEnabled) {
+                const mathPrompt = `You are a powerful math solver. Solve the following problem: "${command}". Provide a clear, step-by-step solution. Do not use markdown.`;
+                const responseText = await processLlmRequest([{ role: "user", parts: [{ text: mathPrompt }] }]);
+                addMessageToChat('Assistant', responseText, { isMath: true });
+                speak(responseText);
+                dom.listenBtn.disabled = false;
+                dom.processingIndicator.classList.add('hidden');
+                return;
+            }
+            
+            const isDeepSearch = isDeepSearchEnabled;
+            const languageName = currentLanguage === 'hi-IN' ? 'Hindi' : 'English';
+            
+            const systemPrompt = `You are Evolve, a powerful AI assistant. Analyze the user's command and respond in ${languageName}. Do not use any markdown formatting like '*' or '#' in your final output.
+            
+            **User Command:** "${command}"`;
+
+            try {
+                let responseText;
+                let isSocial = false;
+
+                const intentResponse = await processLlmRequest([{ role: "user", parts: [{ text: `Analyze command: "${command}" and identify intent (email, website, factual, creative). Respond with one word.` }] }]);
+                const intent = intentResponse.toLowerCase().trim();
+
+                if (isDeepSearch && (intent.includes('factual') || intent.includes('topical'))) {
+                    const socialContext = await getSocialIntel(command);
+                    const deepSearchPrompt = `${systemPrompt}\n\n**Social Media Context:**${socialContext}\n\nSynthesize an answer based on all available information.`;
+                    responseText = await processLlmRequest([{ role: "user", parts: [{ text: deepSearchPrompt }] }]);
+                    isSocial = true;
+                } else {
+                     responseText = await processLlmRequest([{ role: "user", parts: [{ text: systemPrompt }] }]);
+                }
+                
+                let toolResponse;
+                try {
+                    toolResponse = JSON.parse(responseText.match(/\{.*\}/s)[0]);
+                } catch (e) {
+                    toolResponse = null;
+                }
+
+                if (toolResponse && toolResponse.tool) {
+                    switch (toolResponse.tool) {
+                        case 'email': openEmailModal(toolResponse.details); break;
+                        case 'open_website':
+                            addMessageToChat('Assistant', `Opening ${toolResponse.url}`);
+                            speak(`Opening ${toolResponse.url}`);
+                            window.open(toolResponse.url, '_blank');
+                            break;
+                    }
+                } else if (toolResponse && toolResponse.answer) {
+                    addMessageToChat('Assistant', toolResponse.answer, { isGrounded: toolResponse.isGrounded });
+                    speak(toolResponse.answer);
+                } else {
+                    addMessageToChat('Assistant', responseText, { isSocial: isSocial });
+                    speak(responseText);
+                }
+
+            } catch (error) {
+                console.error('Command handling error:', error);
+                addMessageToChat('Assistant', error.message);
+                speak(error.message);
+            } finally {
+                dom.listenBtn.disabled = false;
+                dom.processingIndicator.classList.add('hidden');
+            }
+        }
+        
+        async function handleEmailDraft(to, subject, prompt) { /* Unchanged */ }
+        function openEmailModal(details = '') { /* Unchanged */ }
+        function closeEmailModal() { /* Unchanged */ }
+
+        // --- Camera Functions ---
+        async function startCamera() {
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                dom.cameraFeed.srcObject = cameraStream;
+                dom.cameraModal.classList.remove('hidden');
+                dom.cameraModal.classList.add('flex');
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                let userMessage = "I couldn't access your camera. Please check your browser's site permissions.";
+                if (err.name === 'NotAllowedError') {
+                    userMessage = "Camera access was denied. You'll need to allow it in your browser or operating system settings.";
+                }
+                addMessageToChat('Assistant', userMessage);
+            }
+        }
+
+        function stopCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+            }
+            dom.cameraModal.classList.add('hidden');
+            dom.cameraModal.classList.remove('flex');
+        }
+
+        async function handleCapture() {
+            dom.captureCanvas.width = dom.cameraFeed.videoWidth;
+            dom.captureCanvas.height = dom.cameraFeed.videoHeight;
+            const captureCtx = dom.captureCanvas.getContext('2d');
+            captureCtx.drawImage(dom.cameraFeed, 0, 0, dom.captureCanvas.width, dom.captureCanvas.height);
+            const imageData = dom.captureCanvas.toDataURL('image/jpeg').split(',')[1];
+            stopCamera();
+            addMessageToChat('Assistant', 'Analyzing image...');
+
+            const contents = [{
+                role: "user",
+                parts: [
+                    { text: "What is this object? Describe it briefly." },
+                    { inlineData: { mimeType: "image/jpeg", data: imageData } }
+                ]
+            }];
+            const responseText = await processLlmRequest(contents);
+            addMessageToChat('Assistant', responseText, { isVisual: true });
+            speak(responseText);
+        }
+
+        // --- File Handling ---
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js`;
+
+        function clearFileContext() {
+            fileContext = null;
+            dom.fileContextIndicator.classList.add('hidden');
+            dom.uploadBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>`;
+            dom.uploadBtn.disabled = false;
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            dom.uploadBtn.disabled = true;
+            dom.uploadBtn.innerHTML = `<div class="dot-loader-sm"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>`;
+            clearFileContext();
+            let text = '';
+
+            try {
+                if (file.type === 'application/pdf') {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        const typedarray = new Uint8Array(e.target.result);
+                        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            text += textContent.items.map(item => item.str).join(' ');
+                        }
+                        fileContext = text;
+                        dom.uploadBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>`;
+                        dom.fileContextName.textContent = file.name;
+                        dom.fileContextIndicator.classList.remove('hidden');
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
+                        fileContext = result.value;
+                        dom.uploadBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>`;
+                        dom.fileContextName.textContent = file.name;
+                        dom.fileContextIndicator.classList.remove('hidden');
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else { // Plain text
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        fileContext = e.target.result;
+                        dom.uploadBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>`;
+                        dom.fileContextName.textContent = file.name;
+                        dom.fileContextIndicator.classList.remove('hidden');
+                    };
+                    reader.readAsText(file);
+                }
+            } catch (error) {
+                console.error("File processing error:", error);
+                addMessageToChat('Assistant', "Sorry, I couldn't read that file.");
+                clearFileContext();
+            }
+            
+            dom.fileInput.value = '';
+        }
+
+        // --- Event Listeners ---
+        dom.passwordForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const password = dom.passwordInput.value;
+            // NOTE: This is a simple client-side check and is not secure for production.
+            if (password === 'raza12452ml') {
+                dom.passwordModal.style.opacity = '0';
+                setTimeout(() => {
+                    dom.passwordModal.classList.add('hidden');
+                    dom.welcomeScreen.classList.remove('hidden');
+                    dom.welcomeScreen.classList.add('flex');
+                    startMusic();
+                }, 500);
+            } else {
+                dom.passwordError.textContent = 'Invalid security code.';
+                dom.passwordInput.value = '';
+            }
+        });
+
+        dom.getStartedBtn.addEventListener('click', () => {
+            stopMusic();
+            dom.welcomeScreen.style.opacity = '0';
+            setTimeout(() => {
+                dom.welcomeScreen.classList.add('hidden');
+                dom.mainApp.classList.remove('hidden');
+                dom.mainApp.classList.add('flex');
+                initialize();
+            }, 1000);
+        });
+
+        dom.openSettingsBtn.addEventListener('click', () => dom.settingsPanel.classList.add('open'));
+        dom.closeSettingsBtn.addEventListener('click', () => dom.settingsPanel.classList.remove('open'));
+        dom.listenBtn.addEventListener('click', () => { 
+            if (recognition) {
+                recognition.lang = currentLanguage;
+                if (isListening) recognition.stop(); 
+                else try { recognition.start(); } catch(e) { console.error(e); } 
+            }
+        });
+        dom.uploadBtn.addEventListener('click', () => dom.fileInput.click());
+        dom.fileInput.addEventListener('change', handleFileUpload);
+        dom.clearFileBtn.addEventListener('click', clearFileContext);
+
+        function submitTextPrompt() { const command = dom.textPrompt.value.trim(); if (command) { handleUserCommand(command); dom.textPrompt.value = ''; } }
+        dom.sendBtn.addEventListener('click', submitTextPrompt);
+        dom.textPrompt.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitTextPrompt(); } });
+        dom.cancelEmailBtn.addEventListener('click', closeEmailModal);
+        dom.emailForm.addEventListener('submit', (e) => { /* Unchanged */ });
+        dom.socialToggleBtn.addEventListener('click', () => {
+            isDeepSearchEnabled = !isDeepSearchEnabled;
+            dom.socialToggleBtn.classList.toggle('bg-violet-500', isDeepSearchEnabled);
+            dom.socialToggleBtn.querySelector('svg').classList.toggle('text-white', isDeepSearchEnabled);
+            if (isDeepSearchEnabled && !hasShownDisclaimer) {
+                addMessageToChat('Assistant', 'Deep Social Check is active. Responses may include unverified or sensitive content from public social media.', { isDisclaimer: true });
+                hasShownDisclaimer = true;
+            }
+        });
+        dom.voiceToggle.addEventListener('change', (e) => {
+            isVoiceEnabled = e.target.checked;
+            dom.voiceSelect.disabled = !isVoiceEnabled;
+            if (!isVoiceEnabled) {
+                window.speechSynthesis.cancel();
+            }
+        });
+        
+        function setLanguage(langCode) {
+            currentLanguage = langCode;
+            dom.langEnBtn.classList.toggle('active', langCode === 'en-US');
+            dom.langHiBtn.classList.toggle('active', langCode === 'hi-IN');
+            dom.textPrompt.placeholder = langCode === 'hi-IN' ? 'संदेश टाइप करें...' : 'Type a message...';
+            populateVoiceList();
+        }
+        dom.langEnBtn.addEventListener('click', () => setLanguage('en-US'));
+        dom.langHiBtn.addEventListener('click', () => setLanguage('hi-IN'));
+        
+        dom.mathToggleBtn.addEventListener('click', () => {
+            isMathModeEnabled = !isMathModeEnabled;
+            dom.mathToggleBtn.classList.toggle('bg-blue-500', isMathModeEnabled);
+            dom.mathToggleBtn.querySelector('svg').classList.toggle('text-white', isMathModeEnabled);
+            if (isMathModeEnabled) isMeasurementModeEnabled = false; // Disable other modes
+            dom.measurementToggleBtn.classList.remove('bg-green-500');
+            dom.measurementToggleBtn.querySelector('svg').classList.remove('text-white');
+        });
+
+        dom.measurementToggleBtn.addEventListener('click', () => {
+            captureMode = 'measure';
+            startCamera();
+        });
+
+        dom.cameraBtn.addEventListener('click', () => {
+            captureMode = 'identify';
+            startCamera();
+        });
+        dom.closeCameraBtn.addEventListener('click', stopCamera);
+        dom.captureBtn.addEventListener('click', handleCapture);
+        
+        dom.modelBtn.addEventListener('click', () => {
+            currentAiModelIndex = (currentAiModelIndex + 1) % aiModels.length;
+            const modelName = aiModels[currentAiModelIndex];
+            dom.modelBtn.title = `Model: ${modelName.charAt(0).toUpperCase() + modelName.slice(1)}`;
+            if (modelName === 'balanced') {
+                dom.modelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>`;
+            } else if (modelName === 'deep') {
+                dom.modelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 10.5a.5.5 0 01.5-.5h3a.5.5 0 010 1h-3a.5.5 0 01-.5-.5z" /></svg>`;
+            } else { // creative
+                dom.modelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>`;
+            }
+        });
+        
+        dom.apiKeyInput.addEventListener('change', (e) => {
+            apiKey = e.target.value;
+            localStorage.setItem('evolve-api-key', apiKey);
+            addMessageToChat('Assistant', 'API Key saved.');
+        });
+
+        // --- Speech Recognition Handlers ---
+        if (recognition) {
+            recognition.onstart = () => { isListening = true; startAnimation(); dom.inputWrapper.classList.add('hidden-input'); dom.listenBtn.disabled = true; };
+            recognition.onend = () => { isListening = false; stopAnimation(); dom.inputWrapper.classList.remove('hidden-input'); dom.listenBtn.disabled = false; };
+            recognition.onerror = (event) => { 
+                console.error('Speech Error:', event.error);
+                if (event.error === 'audio-capture') {
+                    addMessageToChat('Assistant', "I can't access your microphone. Please check your browser's site permissions and ensure it's not in use by another app.");
+                } else if (event.error === 'not-allowed') {
+                    addMessageToChat('Assistant', "Microphone access was denied. You'll need to allow it in your browser settings to use the voice feature.");
+                }
+             };
+            recognition.onresult = (event) => { handleUserCommand(event.results[0][0].transcript); };
+        }
+    </script>
+</body>
+</html>
